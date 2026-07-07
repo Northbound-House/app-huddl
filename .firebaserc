@@ -1,5 +1,19 @@
 {
   "projects": {
-    "default": "huddle-ab42f"
+    "default": "huddle-ab42f",
+    "jh": "huddle-ab42f",
+    "huddl": "huddl-a3aec"
+  },
+  "targets": {
+    "huddle-ab42f": {
+      "hosting": {
+        "jh": ["huddle-ab42f"]
+      }
+    },
+    "huddl-a3aec": {
+      "hosting": {
+        "public": ["huddl-a3aec"]
+      }
+    }
   }
 }

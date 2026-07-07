@@ -3,7 +3,7 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { embeddedFirebaseConfig } from '@/lib/firebaseClientConfig';
-import { ALLOWED_AUTH_EMAIL_DOMAIN } from '@/lib/authPolicy';
+import { ALLOWED_AUTH_EMAIL_DOMAIN, BLOCKED_AUTH_EMAIL_DOMAIN } from '@/lib/authPolicy';
 
 /**
  * Env vars (VITE_*) take priority; otherwise uses embedded public web config so production
@@ -85,8 +85,8 @@ export const googleAuthProvider = (() => {
   const p = new GoogleAuthProvider();
   const params = { prompt: 'select_account' };
 
-  // Only restrict domain hint in Jack Henry mode (not public mode)
-  if (ALLOWED_AUTH_EMAIL_DOMAIN && ALLOWED_AUTH_EMAIL_DOMAIN !== '') {
+  // Only hint the domain picker in allow-list mode (e.g. JH). Never in block-list / public mode.
+  if (!BLOCKED_AUTH_EMAIL_DOMAIN && ALLOWED_AUTH_EMAIL_DOMAIN) {
     params.hd = ALLOWED_AUTH_EMAIL_DOMAIN;
   }
 

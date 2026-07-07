@@ -14,9 +14,14 @@ import { auth, googleAuthProvider, isFirebaseConfigured } from '@/lib/firebase';
 import { pickFirebasePhotoUrl } from '@/lib/profilePrompt';
 import {
   ALLOWED_AUTH_EMAIL_DOMAIN,
+  BLOCKED_AUTH_EMAIL_DOMAIN,
   DOMAIN_BLOCKING_ERROR_CODE,
   isSignInEmailAllowed,
 } from '@/lib/authPolicy';
+
+const domainBlockedMsg = BLOCKED_AUTH_EMAIL_DOMAIN
+  ? 'This account is not permitted on Huddl.'
+  : `Sign in with your @${ALLOWED_AUTH_EMAIL_DOMAIN} account. This account is not allowed on Huddl.`;
 
 /** Used when Firebase env vars are missing (local development without cloud auth). */
 export const LOCAL_DEV_USER = {
@@ -54,7 +59,7 @@ function emailAuthErrorMessage(e) {
     code === 'auth/internal-error' &&
     (e?.message?.includes(DOMAIN_BLOCKING_ERROR_CODE) || e?.message?.includes('Cloud Function'))
   ) {
-    return `Sign in with your @${ALLOWED_AUTH_EMAIL_DOMAIN} account. This account is not allowed on Huddl.`;
+    return domainBlockedMsg;
   }
   return byCode[code] || e?.message || 'Could not complete sign-in.';
 }
@@ -76,7 +81,7 @@ function googleAuthErrorMessage(e) {
     return 'The browser blocked the sign-in window. Allow popups for this site and try again.';
   }
   if (code === 'auth/internal-error') {
-    return `Sign in with your @${ALLOWED_AUTH_EMAIL_DOMAIN} Google account. This account is not allowed on Huddl.`;
+    return domainBlockedMsg;
   }
   return e?.message || 'Could not sign in with Google.';
 }
@@ -104,10 +109,7 @@ export function AuthProvider({ children }) {
           } catch {
             /* ignore */
           }
-          toast.error(
-            `Sign in with your @${ALLOWED_AUTH_EMAIL_DOMAIN} Google account. This account isn’t allowed on Huddl.`,
-            { duration: 10_000 }
-          );
+          toast.error(domainBlockedMsg, { duration: 10_000 });
           setFirebaseUser(null);
           setAuthReady(true);
           return;
@@ -160,7 +162,7 @@ export function AuthProvider({ children }) {
       return false;
     }
     if (!isSignInEmailAllowed(email)) {
-      toast.error(`Use your @${ALLOWED_AUTH_EMAIL_DOMAIN} account.`);
+      toast.error(domainBlockedMsg);
       return false;
     }
     try {
@@ -178,7 +180,7 @@ export function AuthProvider({ children }) {
       return false;
     }
     if (!isSignInEmailAllowed(email)) {
-      toast.error(`Use your @${ALLOWED_AUTH_EMAIL_DOMAIN} account.`);
+      toast.error(domainBlockedMsg);
       return false;
     }
     try {
