@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ClipboardList, LayoutGrid, LogOut, UserCircle, Users } from 'lucide-react';
+import { ClipboardList, LogOut, UserCircle, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import HuddlMark from '@/components/HuddlMark';
 import { base44 } from '@/api/base44Client';
 import { useAuth } from '@/lib/AuthContext';
 import { circlesPath } from '@/lib/orgPaths';
@@ -52,9 +53,7 @@ export default function MainHeader({ className }) {
             to="/"
             className="flex items-center gap-2 sm:gap-2.5 min-w-0 rounded-xl hover:bg-muted/60 -ml-1 px-1 py-1 transition-colors"
           >
-            <div className="p-1.5 sm:p-2 rounded-xl bg-gradient-to-br from-primary to-accent text-white shadow-sm shrink-0">
-              <LayoutGrid className="w-5 h-5 sm:w-6 sm:h-6" aria-hidden />
-            </div>
+            <HuddlMark className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl shadow-sm shrink-0" />
             <div className="min-w-0">
               <p className="font-heading text-sm sm:text-base md:text-lg font-bold tracking-tight text-foreground truncate leading-tight">
                 Huddl

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UsersRound } from 'lucide-react';
+import HuddlMark from '@/components/HuddlMark';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/AuthContext';
 import { ALLOWED_AUTH_EMAIL_DOMAIN, BLOCKED_AUTH_EMAIL_DOMAIN } from '@/lib/authPolicy';
@@ -50,9 +50,7 @@ export default function SignIn() {
       <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card p-8 shadow-lg space-y-6">
         <div className="text-center space-y-4">
           <div className="flex justify-center">
-            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-accent text-white">
-              <UsersRound className="w-10 h-10" />
-            </div>
+            <HuddlMark className="w-16 h-16 rounded-2xl shadow-sm" />
           </div>
           <div>
             <h1 className="font-heading text-2xl font-bold tracking-tight">{title}</h1>
