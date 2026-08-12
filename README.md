@@ -7,6 +7,14 @@ Agile retrospective and sprint planning tool with two deployment targets:
 
 ---
 
+## Where to look
+
+| File | Answers |
+| --- | --- |
+| `README.md` (this file) | How do I work on this? |
+| [`STATE.md`](STATE.md) | Where does it stand right now? |
+| [`PLAN.md`](PLAN.md) | What happens next? |
+
 ## Quick Links
 
 - 📖 **[Quick Start](QUICK_START.md)** - Fast reference for building and deploying
