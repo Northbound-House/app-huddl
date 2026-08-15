@@ -1,0 +1,26 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Both deployment targets are built. They share a codebase but not a storage
+# layer — jhuddl uses localStorage, huddl uses Firestore — so a change can
+# compile for one and break the other. Building only one would miss that.
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [jackhenry, public]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:${{ matrix.target }}
