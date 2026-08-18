@@ -22,10 +22,12 @@ import {
   History,
   Lock,
   Plus,
+  Search,
   Settings,
   Trash2,
   Unlock,
   UsersRound,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -45,6 +47,7 @@ import { useBoardPresence } from '@/hooks/useBoardPresence';
 import BoardOnlineIndicator from '@/components/board/BoardOnlineIndicator';
 import { collectVoterEmailsFromCards } from '@/lib/voterEmails';
 import { appendActivityLog } from '@/lib/itemModel';
+import { filterItemsByQuery, isSearchActive } from '@/lib/boardSearch';
 import { openSessionsToCloseBeforeAnchor } from '@/lib/sessionSchedule';
 
 const DND_TYPE_COLUMN = 'COLUMN';
@@ -293,6 +296,25 @@ export default function Board() {
       activeRetroSession?.session_date &&
       activeRetroSession.session_date === todayKey
   );
+  /**
+   * Board search. Every field searched — title, details, Conversation — is already loaded
+   * with the Items, so this filters in memory and never touches the backend.
+   */
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const isFiltered = isSearchActive(searchQuery);
+  const searchInputRef = useRef(null);
+
+  const labelById = useMemo(() => {
+    const m = {};
+    for (const lb of boardLabels) m[lb.id] = lb;
+    return m;
+  }, [boardLabels]);
+
+  const { cards: matchedCards, matchFieldsById } = useMemo(
+    () => filterItemsByQuery(cards, searchQuery, labelById),
+    [cards, searchQuery, labelById]
+  );
+
   const [pastOpen, setPastOpen] = React.useState(false);
   const [sessionActionDialog, setSessionActionDialog] = React.useState(null);
   const [columnDeleteTarget, setColumnDeleteTarget] = React.useState(null);
@@ -663,6 +685,8 @@ export default function Board() {
 
   const handleDragEnd = async (result) => {
     if (boardReadOnly) return;
+    // Drop indices are positions in the filtered list, which is not the stored order.
+    if (isFiltered) return;
     const { destination, source, type } = result;
     if (!destination) return;
 
@@ -1095,6 +1119,58 @@ export default function Board() {
         )}
       </header>
 
+      <div className="shrink-0 border-b border-border/60 bg-background/50 px-5 py-2.5">
+        <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap">
+          <div className="relative flex-1 min-w-[220px] max-w-md">
+            <Search
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && searchQuery) {
+                  e.preventDefault();
+                  setSearchQuery('');
+                }
+              }}
+              placeholder="Search Items — titles, details and Conversation"
+              aria-label="Search Items on this Huddl Board"
+              className={cn(
+                'w-full rounded-xl border border-input bg-background py-1.5 pl-8 text-sm',
+                'outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                searchQuery ? 'pr-8' : 'pr-3'
+              )}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  searchInputRef.current?.focus();
+                }}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded-md text-muted-foreground hover:bg-muted/80"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {isFiltered && (
+            <p className="text-xs text-muted-foreground" role="status" aria-live="polite">
+              {matchedCards.length === 0
+                ? 'No Items match'
+                : `${matchedCards.length} of ${cards.length} ${cards.length === 1 ? 'Item' : 'Items'}`}
+              {!boardReadOnly && <span> · reordering paused while filtered</span>}
+            </p>
+          )}
+        </div>
+      </div>
+
       <DragDropContext onDragEnd={handleDragEnd}>
         <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
           <div className="flex gap-5 p-5 h-full min-h-0 items-stretch">
@@ -1110,12 +1186,15 @@ export default function Board() {
                       key={column.id}
                       draggableId={column.id}
                       index={index}
-                      isDragDisabled={boardReadOnly}
+                      isDragDisabled={boardReadOnly || isFiltered}
                     >
                       {(colProvided, colSnapshot) => (
                         <BoardColumnComponent
                           column={column}
-                          cards={cards.filter((c) => c.column_id === column.id)}
+                          cards={matchedCards.filter((c) => c.column_id === column.id)}
+                          isFiltered={isFiltered}
+                          totalCardCount={cards.filter((c) => c.column_id === column.id).length}
+                          matchFieldsById={matchFieldsById}
                           columnProvided={colProvided}
                           columnSnapshot={colSnapshot}
                           onAddCard={handleAddCard}

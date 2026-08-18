@@ -7,6 +7,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  Search,
   ThumbsUp,
   Trash2,
 } from 'lucide-react';
@@ -25,6 +26,7 @@ import ItemCardContextMenu from '@/components/board/ItemCardContextMenu';
 import VoterAvatars from '@/components/board/VoterAvatars';
 import { LABEL_COLOR_STYLES, labelChipClasses } from '@/lib/labelPalette';
 import { conversationCount, getItemTitle } from '@/lib/itemModel';
+import { SEARCH_FIELD } from '@/lib/boardSearch';
 
 export default function BoardColumnComponent({
   column,
@@ -53,6 +55,12 @@ export default function BoardColumnComponent({
   readOnly = false,
   /** Only Huddl Board administrators (Circle Leads or personal owner) may delete Sections. */
   canDeleteColumn = false,
+  /** A board-wide search is filtering `cards` down to a subset; reordering is off while it is. */
+  isFiltered = false,
+  /** Item count in this Section before filtering, for the "matched / total" badge. */
+  totalCardCount = 0,
+  /** Item id → matched field names, so an Item found only by its Conversation says so. */
+  matchFieldsById = {},
 }) {
   const [draft, setDraft] = useState('');
   const [addCardOpen, setAddCardOpen] = useState(false);
@@ -272,8 +280,16 @@ export default function BoardColumnComponent({
                   <h2 className="font-heading font-semibold text-[15px] text-foreground tracking-tight truncate">
                     {column.title}
                   </h2>
-                  <span className="shrink-0 text-[11px] font-medium tabular-nums text-muted-foreground bg-background/70 border border-border/50 px-1.5 py-0.5 rounded-md">
-                    {sorted.length}
+                  <span
+                    className={cn(
+                      'shrink-0 text-[11px] font-medium tabular-nums px-1.5 py-0.5 rounded-md border',
+                      isFiltered
+                        ? 'text-primary bg-primary/10 border-primary/30'
+                        : 'text-muted-foreground bg-background/70 border-border/50'
+                    )}
+                    title={isFiltered ? `${sorted.length} of ${totalCardCount} Items match` : undefined}
+                  >
+                    {isFiltered ? `${sorted.length}/${totalCardCount}` : sorted.length}
                   </span>
                 </div>
               </div>
@@ -328,23 +344,57 @@ export default function BoardColumnComponent({
               snapshot.isDraggingOver && 'bg-muted/40'
             )}
           >
-            {sorted.map((card, index) => (
+            {sorted.map((card, index) => {
+              /* While a search filter is on, the rendered list is a subset, so a drop index
+                 would not map back to the Item's real position. Reordering stays off until
+                 the filter is cleared. */
+              const isCardDragDisabled = readOnly || isFiltered || editingCardId === card.id;
+              /* A title hit is already visible on the card; only the off-card places worth
+                 pointing at (details, Conversation, labels) earn a hint. */
+              const offCardMatches = isFiltered
+                ? (matchFieldsById[card.id] ?? []).filter((f) => f !== SEARCH_FIELD.title)
+                : [];
+              return (
               <Draggable
                 key={card.id}
                 draggableId={card.id}
                 index={index}
-                isDragDisabled={readOnly || editingCardId === card.id}
+                isDragDisabled={isCardDragDisabled}
               >
-                {(dragProvided, dragSnapshot) => (
+                {(dragProvided, dragSnapshot) => {
+                  /* dnd supplies no handle props when dragging is off (read-only board, or this
+                     Item is being edited). Keep the card focusable anyway so Enter still opens
+                     details there — that used to live on the inner body. */
+                  const handleProps = dragProvided.dragHandleProps ?? { tabIndex: 0, role: 'button' };
+                  return (
                   <div
                     ref={dragProvided.innerRef}
                     {...dragProvided.draggableProps}
+                    {...handleProps}
                     className={cn(
                       'rounded-xl border border-border/70 bg-background/80 p-2 shadow-sm transition-shadow flex gap-1.5',
+                      'outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                      isCardDragDisabled ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
                       dragSnapshot.isDragging && 'shadow-lg ring-2 ring-primary/30',
                       card.archived_at && 'opacity-75 border-dashed',
                       card.completed_at && 'opacity-90'
                     )}
+                    aria-label={`Item: ${getItemTitle(card)}. Enter to open details.${
+                      isCardDragDisabled ? '' : ' Space to pick up and move.'
+                    }`}
+                    onKeyDown={(e) => {
+                      /* dnd owns Space (pick up / drop) via the props spread above; calling its
+                         handler first keeps keyboard dragging working despite this override. */
+                      handleProps.onKeyDown?.(e);
+                      if (e.defaultPrevented) return;
+                      /* Only when the card itself has focus — otherwise Enter in the inline
+                         editor's textarea would open details instead of adding a newline. */
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        openItemDetail(card.id);
+                      }
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -352,17 +402,17 @@ export default function BoardColumnComponent({
                     }}
                   >
                     {!readOnly ? (
-                      <button
-                        type="button"
+                      // Decorative now that the whole card drags — deliberately not a <button>,
+                      // since dnd refuses to start a drag from an interactive element.
+                      <span
                         className={cn(
-                          'shrink-0 mt-0.5 p-1 rounded-lg text-muted-foreground hover:bg-muted/80 cursor-grab active:cursor-grabbing touch-none',
-                          editingCardId === card.id && 'opacity-40 pointer-events-none'
+                          'shrink-0 mt-0.5 p-1 rounded-lg text-muted-foreground',
+                          editingCardId === card.id && 'opacity-40'
                         )}
-                        aria-label="Drag to reorder Item"
-                        {...dragProvided.dragHandleProps}
+                        aria-hidden
                       >
                         <GripVertical className="w-4 h-4" />
-                      </button>
+                      </span>
                     ) : (
                       <span className="shrink-0 w-6" aria-hidden />
                     )}
@@ -405,17 +455,11 @@ export default function BoardColumnComponent({
                         </div>
                       ) : (
                         <>
+                          {/* Focus and keyboard now live on the card itself (the drag handle),
+                              so this stays a plain click target and not a second tab stop. */}
                           <div
-                            tabIndex={0}
-                            className="text-left rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer select-none"
-                            aria-label="View Item details. Double-click to edit."
+                            className="text-left rounded-lg cursor-pointer select-none"
                             onClick={(e) => handleCardBodyClick(e, card)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                openItemDetail(card.id);
-                              }
-                            }}
                           >
                             {card.cover_style?.type === 'color' && card.cover_style?.value ? (
                               <div
@@ -451,6 +495,12 @@ export default function BoardColumnComponent({
                             >
                               {getItemTitle(card)}
                             </p>
+                            {offCardMatches.length > 0 && (
+                              <p className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-primary/90">
+                                <Search className="w-2.5 h-2.5" aria-hidden />
+                                Found in {offCardMatches.join(' · ')}
+                              </p>
+                            )}
                             {card.archived_at && (
                               <span className="mt-1 inline-block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                                 Archived
@@ -544,9 +594,11 @@ export default function BoardColumnComponent({
 
                     </div>
                   </div>
-                )}
+                  );
+                }}
               </Draggable>
-            ))}
+              );
+            })}
             {provided.placeholder}
           </div>
         )}
