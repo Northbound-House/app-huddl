@@ -46,8 +46,12 @@ function tabPresenceId() {
   }
 }
 
-/** Same stable fields as {@link BoardOnlineIndicator} — ignores heartbeat-only `lastSeenMs` churn. */
-function onlineListDisplaySignature(rows) {
+/**
+ * Identity of the rendered online list — the fields {@link BoardOnlineIndicator} actually draws,
+ * ignoring heartbeat-only `lastSeenMs` churn. Shared with the component so both sides agree on
+ * what counts as a change rather than keeping two copies of the rule.
+ */
+export function onlineListDisplaySignature(rows) {
   const sorted = [...rows].sort((a, b) =>
     String(a.email ?? a.uid).localeCompare(String(b.email ?? b.uid), undefined, { sensitivity: 'base' })
   );
@@ -83,6 +87,17 @@ export function useBoardPresence({ boardId, enabled, sessionUser }) {
   const lastOnlineListSigRef = useRef('');
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+
+  /*
+   * Display fields live in a ref, not in the subscription's deps. Keying the effect on them meant
+   * editing your name or avatar tore the whole subscription down — deleting your presence doc and
+   * resubscribing — so you blinked out of your own list just for changing a photo. The heartbeat
+   * reads current values through this ref instead, and the effect below pushes an immediate
+   * refresh when they change.
+   */
+  const sessionUserRef = useRef(sessionUser);
+  sessionUserRef.current = sessionUser;
+  const writePresenceRef = useRef(null);
 
   const emitOnlineUsersIfChanged = (rawMap) => {
     if (!enabledRef.current) return;
@@ -122,19 +137,21 @@ export function useBoardPresence({ boardId, enabled, sessionUser }) {
       const myRef = doc(db, 'boards', boardId, 'presence', firestoreUid);
 
       const writePresence = () => {
+        const u = sessionUserRef.current;
         setDoc(
           myRef,
           {
             updated_at: serverTimestamp(),
-            email: sessionUser?.email || null,
-            display_name: sessionUser?.full_name || null,
-            photo_url: sessionUser?.photoURL || null,
+            email: u?.email || null,
+            display_name: u?.full_name || null,
+            photo_url: u?.photoURL || null,
           },
           { merge: true }
         ).catch((e) => {
           if (import.meta.env.DEV) console.warn('[Huddl] board presence write failed', e);
         });
       };
+      writePresenceRef.current = writePresence;
 
       writePresence();
       const hb = setInterval(writePresence, HEARTBEAT_MS);
@@ -142,6 +159,18 @@ export function useBoardPresence({ boardId, enabled, sessionUser }) {
         if (document.visibilityState === 'visible') writePresence();
       };
       document.addEventListener('visibilitychange', onVisibility);
+
+      /*
+       * Effect cleanup does not run when a tab is closed, so without this you lingered in
+       * everyone's "Online" for the full STALE_MS window after leaving. `pagehide` covers close,
+       * reload and navigation; a crash or dropped connection still falls back to the staleness
+       * sweep, which Firestore gives no way to avoid (there is no onDisconnect outside RTDB).
+       * If the page comes back from bfcache the next heartbeat re-creates the doc.
+       */
+      const onPageHide = () => {
+        deleteDoc(myRef).catch(() => {});
+      };
+      window.addEventListener('pagehide', onPageHide);
 
       const unsub = onSnapshot(
         presCol,
@@ -182,6 +211,8 @@ export function useBoardPresence({ boardId, enabled, sessionUser }) {
         clearInterval(hb);
         clearInterval(staleInterval);
         document.removeEventListener('visibilitychange', onVisibility);
+        window.removeEventListener('pagehide', onPageHide);
+        writePresenceRef.current = null;
         unsub();
         deleteDoc(myRef).catch(() => {});
         setMyPresenceUid(null);
@@ -195,15 +226,17 @@ export function useBoardPresence({ boardId, enabled, sessionUser }) {
       presenceMapRef.current = new Map();
 
       const broadcast = () => {
+        const u = sessionUserRef.current;
         channel.postMessage({
           type: 'hb',
           uid: synthetic,
-          email: sessionUser?.email || 'user@localhost.local',
-          display_name: sessionUser?.full_name || 'Local User',
-          photo_url: sessionUser?.photoURL || null,
+          email: u?.email || 'user@localhost.local',
+          display_name: u?.full_name || 'Local User',
+          photo_url: u?.photoURL || null,
           ts: Date.now(),
         });
       };
+      writePresenceRef.current = broadcast;
 
       const onMsg = (ev) => {
         const data = ev?.data;
@@ -224,22 +257,30 @@ export function useBoardPresence({ boardId, enabled, sessionUser }) {
         emitOnlineUsersIfChanged(presenceMapRef.current);
       };
 
+      const announceLeave = () => {
+        try {
+          channel.postMessage({ type: 'leave', uid: synthetic });
+        } catch {
+          /* channel already closed */
+        }
+      };
+
       channel.addEventListener('message', onMsg);
       broadcast();
       const hb = setInterval(broadcast, HEARTBEAT_MS);
       const staleInterval = setInterval(() => {
         emitOnlineUsersIfChanged(presenceMapRef.current);
       }, STALE_TICK_MS);
+      // Same reasoning as the Firestore branch: cleanup does not run on tab close.
+      window.addEventListener('pagehide', announceLeave);
 
       return () => {
         clearInterval(hb);
         clearInterval(staleInterval);
         channel.removeEventListener('message', onMsg);
-        try {
-          channel.postMessage({ type: 'leave', uid: synthetic });
-        } catch {
-          /* ignore */
-        }
+        window.removeEventListener('pagehide', announceLeave);
+        writePresenceRef.current = null;
+        announceLeave();
         channel.close();
         setMyPresenceUid(null);
       };
@@ -247,15 +288,22 @@ export function useBoardPresence({ boardId, enabled, sessionUser }) {
 
     setMyPresenceUid(null);
     return undefined;
-  }, [
-    enabled,
-    boardId,
-    isFirestoreBackend,
-    sessionUser?.uid,
-    sessionUser?.email,
-    sessionUser?.full_name,
-    sessionUser?.photoURL,
-  ]);
+    // `isFirestoreBackend` is a module constant, not reactive state — listing it implied otherwise.
+  }, [enabled, boardId, sessionUser?.uid]);
+
+  /*
+   * Display fields deliberately sit outside the subscription's deps (see sessionUserRef), so push
+   * a heartbeat when they change. Declared after the subscription effect so the ref is populated
+   * by the time this runs; the first run is skipped because that effect has just written.
+   */
+  const displayFieldsSettledRef = useRef(false);
+  useEffect(() => {
+    if (!displayFieldsSettledRef.current) {
+      displayFieldsSettledRef.current = true;
+      return;
+    }
+    writePresenceRef.current?.();
+  }, [sessionUser?.email, sessionUser?.full_name, sessionUser?.photoURL]);
 
   return { onlineUsers, myPresenceUid };
 }

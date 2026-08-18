@@ -2,15 +2,8 @@ import React from 'react';
 import { normalizeEmail } from '@/lib/email';
 import { initialsFromEmail, voterAvatarColors } from '@/lib/voterDisplay';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { onlineListDisplaySignature } from '@/hooks/useBoardPresence';
 
-function onlineUsersSignature(users) {
-  return users
-    .map(
-      (u) =>
-        [u.uid, u.email ?? '', u.display_name ?? '', u.photo_url ?? ''].join('\u0001')
-    )
-    .join('\u0002');
-}
 
 /**
  * Header strip: who has this board open right now (presence heartbeat).
@@ -25,7 +18,6 @@ function BoardOnlineIndicator({ onlineUsers, sessionUser, myPresenceUid }) {
   if (onlineUsers.length === 0) return null;
 
   const labelFor = (u) => {
-    const em = u.email ? normalizeEmail(u.email) : '';
     if (u.display_name?.trim()) return u.display_name.trim();
     if (u.email) return u.email;
     return u.uid;
@@ -117,7 +109,7 @@ function onlineIndicatorPropsEqual(prev, next) {
   return (
     prev.myPresenceUid === next.myPresenceUid &&
     prev.onlineUsers.length === next.onlineUsers.length &&
-    onlineUsersSignature(prev.onlineUsers) === onlineUsersSignature(next.onlineUsers) &&
+    onlineListDisplaySignature(prev.onlineUsers) === onlineListDisplaySignature(next.onlineUsers) &&
     (prev.sessionUser?.email ?? '') === (next.sessionUser?.email ?? '')
   );
 }
