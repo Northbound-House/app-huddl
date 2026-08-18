@@ -148,7 +148,15 @@ export function useBoardPresence({ boardId, enabled, sessionUser }) {
         (snap) => {
           const m = new Map();
           snap.forEach((d) => {
-            const data = d.data();
+            /*
+             * `estimate` matters here. Each heartbeat writes `serverTimestamp()`, and Firestore
+             * echoes the write locally before the server acknowledges it. Read with the default
+             * (`none`), a pending timestamp comes back as null → lastSeenMs 0 → the row fails the
+             * freshness check and the writer drops out of their own online list until the ack
+             * lands. That blinked every heartbeat, and unmounted the whole indicator when you
+             * were the only viewer. `estimate` fills in the local clock instead.
+             */
+            const data = d.data({ serverTimestamps: 'estimate' });
             const ts = updatedAtToMillis(data.updated_at);
             m.set(d.id, {
               uid: d.id,
